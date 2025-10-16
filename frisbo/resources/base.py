@@ -53,6 +53,7 @@ class BaseResource:
             json=json,
             params=params,
             headers=headers,
+            proxies=self.client.proxies,
             **kwargs
         )
 

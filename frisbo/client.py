@@ -32,7 +32,8 @@ class FrisboClient:
         password: Optional[str] = None,
         access_token: Optional[str] = None,
         base_url: str = "https://api.frisbo.ro",
-        auto_authenticate: bool = True
+        auto_authenticate: bool = True,
+        proxy: Optional[str] = None
     ):
         """Initialize the Frisbo client.
 
@@ -42,12 +43,17 @@ class FrisboClient:
             access_token: Pre-existing access token (optional)
             base_url: Base URL for the API
             auto_authenticate: Automatically authenticate on initialization
+            proxy: Proxy URL (supports http, https, socks4, socks5, socks5h)
+                   Examples: 'http://proxy:8080', 'socks5h://user:pass@proxy:1080'
         """
         self.email = email
         self.password = password
         self.access_token = access_token
         self.base_url = base_url.rstrip("/")
         self.token_expires_at: Optional[datetime] = None
+
+        # Convert proxy string to dict format for requests library
+        self.proxies = {'http': proxy, 'https': proxy} if proxy else None
 
         # Initialize resources
         self.auth = AuthResource(self)
