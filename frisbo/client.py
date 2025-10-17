@@ -1,6 +1,7 @@
 """Main Frisbo API client."""
 
 from typing import Optional
+import logging
 import requests
 from datetime import datetime, timedelta
 
@@ -11,6 +12,8 @@ from .resources.products import ProductsResource
 from .resources.orders import OrdersResource
 from .resources.invoices import InvoicesResource
 from .resources.inbound import InboundResource
+
+logger = logging.getLogger(__name__)
 
 
 class FrisboClient:
@@ -55,6 +58,16 @@ class FrisboClient:
         # Convert proxy string to dict format for requests library
         self.proxies = {'http': proxy, 'https': proxy} if proxy else None
 
+        # Log client initialization
+        logger.info(
+            f"Initializing FrisboClient (base_url={base_url}, proxy={'configured' if proxy else 'none'})",
+            extra={
+                "base_url": base_url,
+                "proxy": proxy,
+                "auto_authenticate": auto_authenticate
+            }
+        )
+
         # Initialize resources
         self.auth = AuthResource(self)
         self.organizations = OrganizationsResource(self)
@@ -79,6 +92,8 @@ class FrisboClient:
         if not self.email or not self.password:
             raise AuthenticationError("Email and password are required for authentication")
 
+        logger.info(f"Authenticating user: {self.email}")
+
         try:
             auth_response = self.auth.login(self.email, self.password)
             self.access_token = auth_response.access_token
@@ -86,9 +101,20 @@ class FrisboClient:
             # Calculate token expiry
             if auth_response.expires_in:
                 self.token_expires_at = datetime.now() + timedelta(seconds=auth_response.expires_in)
+                logger.info(
+                    f"Authentication successful (token expires at {self.token_expires_at.isoformat()})",
+                    extra={
+                        "email": self.email,
+                        "expires_at": self.token_expires_at.isoformat(),
+                        "expires_in": auth_response.expires_in
+                    }
+                )
+            else:
+                logger.info(f"Authentication successful", extra={"email": self.email})
 
             return self.access_token
         except Exception as e:
+            logger.error(f"Authentication failed for {self.email}: {str(e)}")
             raise AuthenticationError(f"Authentication failed: {str(e)}")
 
     def is_authenticated(self) -> bool:
@@ -102,6 +128,7 @@ class FrisboClient:
 
         # Check if token is expired
         if self.token_expires_at and datetime.now() >= self.token_expires_at:
+            logger.warning("Access token has expired")
             return False
 
         return True
@@ -110,15 +137,19 @@ class FrisboClient:
         """Ensure the client is authenticated, re-authenticate if needed."""
         if not self.is_authenticated():
             if self.email and self.password:
+                logger.info("Re-authenticating due to expired or missing token")
                 self.authenticate()
             else:
+                logger.error("Not authenticated and no credentials available")
                 raise AuthenticationError("Not authenticated and no credentials available")
 
     def logout(self) -> None:
         """Logout and invalidate the current session."""
         if self.access_token:
+            logger.info(f"Logging out user: {self.email}")
             try:
                 self.auth.logout()
+                logger.info("Logout successful")
             finally:
                 self.access_token = None
                 self.token_expires_at = None

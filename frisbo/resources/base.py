@@ -1,11 +1,15 @@
 """Base resource class for Frisbo SDK."""
 
 from typing import TYPE_CHECKING, Iterator, Any, Optional, Dict
+import logging
+import time
 import requests
 from ..exceptions import APIError, NotFoundError, RateLimitError
 
 if TYPE_CHECKING:
     from ..client import FrisboClient
+
+logger = logging.getLogger(__name__)
 
 
 class BaseResource:
@@ -47,6 +51,20 @@ class BaseResource:
 
         headers["Content-Type"] = "application/json"
 
+        # Log request
+        logger.debug(
+            f"API Request: {method} {url}",
+            extra={
+                "method": method,
+                "url": url,
+                "params": params,
+                "has_json": json is not None,
+                "proxy": self.client.proxies.get('https') if self.client.proxies else None
+            }
+        )
+
+        start_time = time.time()
+
         response = requests.request(
             method=method,
             url=url,
@@ -55,6 +73,19 @@ class BaseResource:
             headers=headers,
             proxies=self.client.proxies,
             **kwargs
+        )
+
+        elapsed = time.time() - start_time
+
+        # Log response
+        logger.info(
+            f"API Response: {method} {endpoint} - {response.status_code} ({elapsed:.2f}s)",
+            extra={
+                "method": method,
+                "endpoint": endpoint,
+                "status_code": response.status_code,
+                "elapsed": elapsed
+            }
         )
 
         # Handle errors
@@ -81,9 +112,20 @@ class BaseResource:
         except Exception:
             message = response.text or f"HTTP {status_code}"
 
+        # Log error
+        logger.error(
+            f"API Error: {status_code} - {message}",
+            extra={
+                "status_code": status_code,
+                "error_message": message,
+                "url": response.url
+            }
+        )
+
         if status_code == 404:
             raise NotFoundError(message, status_code, error_data if 'error_data' in locals() else None)
         elif status_code == 429:
+            logger.warning(f"Rate limit exceeded: {message}")
             raise RateLimitError(message, status_code, error_data if 'error_data' in locals() else None)
         else:
             raise APIError(message, status_code, error_data if 'error_data' in locals() else None)
@@ -126,13 +168,27 @@ class BaseResource:
         response = self._get(endpoint, params=params)
         data = response.json()
 
+        # Log pagination info
+        current_page = data.get("current_page", page)
+        last_page = data.get("last_page", page)
+        per_page = data.get("per_page", 0)
+        total = data.get("total", 0)
+
+        logger.debug(
+            f"Paginating {endpoint}: page {current_page}/{last_page} ({per_page} items/page, {total} total)",
+            extra={
+                "endpoint": endpoint,
+                "current_page": current_page,
+                "last_page": last_page,
+                "per_page": per_page,
+                "total": total
+            }
+        )
+
         # Yield items from current page
         for item in data.get("data", []):
             yield item
 
         # Recurse if there are more pages
-        current_page = data.get("current_page", page)
-        last_page = data.get("last_page", page)
-
         if current_page < last_page:
             yield from self._paginate(endpoint, params, page + 1)
